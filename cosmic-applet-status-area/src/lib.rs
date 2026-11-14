@@ -4,6 +4,7 @@
 use std::{env, process};
 
 mod components;
+mod config;
 mod subscriptions;
 
 pub mod status_notifier_watcher;
