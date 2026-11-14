@@ -1,0 +1,18 @@
+Package: cosmic-applets
+Version: 1.11.0+git3fc2113
+Architecture: amd64
+Maintainer: system76 <info@system76.com>
+Installed-Size: 74391
+Depends: cosmic-icons, libc6 (>= 2.39), libdbus-1-3 (>= 1.9.14), libgcc-s1 (>= 4.2), libudev1 (>= 183), libxkbcommon0 (>= 0.5.0)
+Recommends: pipewire-pulse
+Provides: system76-power-applet-virtual
+Homepage: https://github.com/pop-os/cosmic-applets
+Priority: optional
+Section: admin
+Filename: pool/main/c/cosmic-applets/cosmic-applets_1.11.0+git3fc2113_amd64.deb
+Size: 14909990
+SHA256: 93e384a28a1a815d7a73b01c2fea6ed61824f4a4ca731a589f5c137e8424dd1e
+SHA1: 32f02de88b21023a4b8aece84dfeb2981ff096e3
+MD5sum: ec7b2b2843df0a320c983ed62ed65572
+Description: Cosmic Applets
+

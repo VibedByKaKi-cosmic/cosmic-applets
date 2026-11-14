@@ -1,0 +1,4 @@
+Component: main
+Label: COSMIC Applets APT Repository
+Architecture: amd64
+Description: COSMIC Applets packages built from VibedByKaKi-cosmic/cosmic-applets

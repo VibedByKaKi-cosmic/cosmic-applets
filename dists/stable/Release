@@ -1,0 +1,18 @@
+Label: COSMIC Applets APT Repository
+Codename: stable
+Date: Sat, 14 Nov 2026 23:39:41 UTC
+Architectures: amd64
+Components: main
+Description: COSMIC Applets packages built from VibedByKaKi-cosmic/cosmic-applets
+MD5Sum:
+ 4496c40d1df3b15c4def5bcd833131f1 700 main/binary-amd64/Packages
+ 40f67b858db645dbea83ca5afd20c12f 465 main/binary-amd64/Packages.gz
+ a1d4a96f9d2d0e2cf60fb4269ee0762e 155 main/binary-amd64/Release
+SHA1:
+ 7a1e4c028d9c779574eb19785f20e71b752126b0 700 main/binary-amd64/Packages
+ 098b802131feca6968ea8ad5c0c6f8520934baa3 465 main/binary-amd64/Packages.gz
+ a243760887bcd1538d8600c4c9ed448b1ee7ace5 155 main/binary-amd64/Release
+SHA256:
+ 6e728b176585e563cf895aed7b332a34ca218bf2088662e3735aac6573699aeb 700 main/binary-amd64/Packages
+ 8d8c1756939df307f3cfe4993c91997f6851fc1bf4bc62fff68345c856e1e1f8 465 main/binary-amd64/Packages.gz
+ 2870ad7d077a5815b8826064a83466a27b9fe138c019d35e60111dfbaa745272 155 main/binary-amd64/Release
