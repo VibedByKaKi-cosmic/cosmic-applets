@@ -1,0 +1,125 @@
+name: Build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  build:
+    name: Build Debian package
+    # The apt branch only holds the published repository, so pushes to it skip the build.
+    if: github.ref != 'refs/heads/apt'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            debhelper \
+            devscripts \
+            dpkg-dev \
+            fakeroot \
+            just \
+            libclang-dev \
+            libdbus-1-dev \
+            libegl-dev \
+            libinput-dev \
+            libpipewire-0.3-dev \
+            libpulse-dev \
+            libudev-dev \
+            libwayland-dev \
+            libxkbcommon-dev \
+            pkg-config
+
+      - name: Install Rust toolchain
+        # Running cargo in the repository makes rustup install the channel pinned in rust-toolchain.toml.
+        run: cargo --version
+
+      - name: Set package version
+        run: .ci/set-version.sh
+
+      - name: Build Debian package
+        run: .ci/build-deb.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cosmic-applets-amd64
+          path: artifacts/*.deb
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set package version
+        run: .ci/set-version.sh
+
+      - name: Set release metadata
+        run: |
+          TAG="v${UPSTREAM_VERSION}+git.${SHORT_SHA}"
+          TITLE="COSMIC Applets ${UPSTREAM_VERSION} (${SHORT_SHA})"
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "TITLE=${TITLE}" >> "$GITHUB_ENV"
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cosmic-applets-amd64
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.TAG }}
+          name: ${{ env.TITLE }}
+          prerelease: true
+          generate_release_notes: true
+          files: artifacts/*.deb
+
+  apt:
+    name: Update APT repository
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    needs: release
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set package version
+        run: .ci/set-version.sh
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: cosmic-applets-amd64
+          path: artifacts
+
+      - name: Install APT repository tools
+        run: sudo apt-get update && sudo apt-get install -y reprepro gnupg
+
+      - name: Update apt branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APT_REPO_GPG_PRIVATE_KEY: ${{ secrets.APT_REPO_GPG_PRIVATE_KEY }}
+        run: .ci/update-apt-repo.sh
