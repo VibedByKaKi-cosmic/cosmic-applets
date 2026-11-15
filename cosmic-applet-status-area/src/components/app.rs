@@ -83,14 +83,21 @@ impl App {
 
     /// Whether the config keeps the item in the bar.
     fn is_pinned(&self, menu: &status_menu::State) -> bool {
-        self.config.pinned_items.iter().any(|id| id == menu.item.sni_id())
+        self.config
+            .pinned_items
+            .iter()
+            .any(|id| id == menu.item.sni_id())
     }
 
     /// Whether the config sends the item to the overflow popup, even when the bar has room.
     fn is_forced_overflow(&self, menu: &status_menu::State) -> bool {
         !self.is_pinned(menu)
             && (self.config.always_overflow
-                || self.config.overflow_items.iter().any(|id| id == menu.item.sni_id()))
+                || self
+                    .config
+                    .overflow_items
+                    .iter()
+                    .any(|id| id == menu.item.sni_id()))
     }
 
     /// Menu ids in display order: pinned items, then the other items in tray
