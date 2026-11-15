@@ -24,6 +24,7 @@ use std::collections::BTreeMap;
 
 use crate::{
     components::status_menu,
+    config::StatusAreaConfig,
     subscriptions::{status_notifier_item::StatusNotifierItem, status_notifier_watcher},
 };
 
@@ -42,6 +43,7 @@ pub enum Msg {
     ToggleOverflow,
     HoveredOverflow,
     Token(TokenUpdate),
+    ConfigChanged(StatusAreaConfig),
 }
 
 #[derive(Default)]
@@ -56,6 +58,7 @@ pub(crate) struct App {
     hovered_menu: Option<usize>,
     scroll_states: BTreeMap<usize, DiscreteScrollState>,
     token_tx: Option<calloop::channel::Sender<TokenRequest>>,
+    config: StatusAreaConfig,
 }
 
 impl App {
@@ -78,7 +81,45 @@ impl App {
         )
     }
 
-    fn overflow_index(&self) -> Option<usize> {
+    /// Whether the config keeps the item in the bar.
+    fn is_pinned(&self, menu: &status_menu::State) -> bool {
+        self.config
+            .pinned_items
+            .iter()
+            .any(|id| id == menu.item.sni_id())
+    }
+
+    /// Whether the config sends the item to the overflow popup, even when the bar has room.
+    fn is_forced_overflow(&self, menu: &status_menu::State) -> bool {
+        !self.is_pinned(menu)
+            && (self.config.always_overflow
+                || self
+                    .config
+                    .overflow_items
+                    .iter()
+                    .any(|id| id == menu.item.sni_id()))
+    }
+
+    /// Menu ids in display order: pinned items, then the other items in tray
+    /// order, then the items the config sends to the overflow popup.
+    fn display_order(&self) -> Vec<usize> {
+        let mut pinned = Vec::new();
+        let mut normal = Vec::new();
+        let mut forced = Vec::new();
+        for (id, menu) in &self.menus {
+            if self.is_pinned(menu) {
+                pinned.push(*id);
+            } else if self.is_forced_overflow(menu) {
+                forced.push(*id);
+            } else {
+                normal.push(*id);
+            }
+        }
+        pinned.into_iter().chain(normal).chain(forced).collect()
+    }
+
+    /// How many items fit in the bar, or None before the panel sends its size.
+    fn bar_capacity(&self) -> Option<usize> {
         let max_major_axis_len = self.core.applet.suggested_bounds.as_ref().map(|c| {
             // if we have a configure for width and height, we're in a overflow popup
             match self.core.applet.anchor {
@@ -90,31 +131,43 @@ impl App {
         let button_total_size = self.core.applet.suggested_size(true).0
             + self.core.applet.suggested_padding(true).1 * 2;
 
-        let menu_count = self.menus.len();
+        Some((max_major_axis_len / button_total_size as u32) as usize)
+    }
 
-        let btn_count = max_major_axis_len / button_total_size as u32;
-        if btn_count >= menu_count as u32 {
-            None
-        } else {
-            Some(
-                (btn_count.saturating_sub(1) as usize)
-                    .min(menu_count)
-                    .max(1),
-            )
+    /// The number of leading items in `display_order` that stay in the bar.
+    /// Items after that index go to the overflow popup. None means that no item overflows.
+    fn overflow_index(&self) -> Option<usize> {
+        let menu_count = self.menus.len();
+        let forced = self
+            .menus
+            .values()
+            .filter(|menu| self.is_forced_overflow(menu))
+            .count();
+        let capacity = self.bar_capacity().unwrap_or(usize::MAX);
+        if forced == 0 && menu_count <= capacity {
+            return None;
         }
+        // The overflow button takes one slot in the bar.
+        Some((menu_count - forced).min(capacity.saturating_sub(1).max(1)))
     }
 
     fn view_overflow_popup(&self) -> cosmic::Element<'_, Msg> {
         // Render the overflow popup with the menus that are not shown in the main view
         let overflow_index = self.overflow_index().unwrap_or(0);
-        let children = self.menus.iter().skip(overflow_index).map(|(id, menu)| {
-            mouse_area(
-                menu_icon_button(&self.core.applet, menu).on_press_down(Msg::TogglePopup(*id)),
-            )
-            .on_enter(Msg::Hovered(Some(*id)))
-            .on_exit(Msg::Hovered(None))
-            .into()
-        });
+        let mut children: Vec<cosmic::Element<'_, Msg>> = Vec::new();
+        for id in self.display_order().into_iter().skip(overflow_index) {
+            let Some(menu) = self.menus.get(&id) else {
+                continue;
+            };
+            children.push(
+                mouse_area(
+                    menu_icon_button(&self.core.applet, menu).on_press_down(Msg::TogglePopup(id)),
+                )
+                .on_enter(Msg::Hovered(Some(id)))
+                .on_exit(Msg::Hovered(None))
+                .into(),
+            );
+        }
 
         self.core
             .applet
@@ -251,7 +304,7 @@ impl cosmic::Application for App {
                             |_| Default::default(),
                             move |app: &mut Self| {
                                 let popup_id = app.next_popup_id();
-                                let i = app.menus.keys().position(|&i| i == id).unwrap();
+                                let i = app.display_order().iter().position(|&i| i == id).unwrap();
                                 let (i, parent) = app
                                     .overflow_index()
                                     .and_then(|overflow_i| {
@@ -292,6 +345,18 @@ impl cosmic::Application for App {
                 } else if let Some(popup_id) = self.popup {
                     self.menus[&id].closed();
 
+                    return destroy_popup(popup_id);
+                }
+                Task::none()
+            }
+            Msg::ConfigChanged(config) => {
+                self.config = config;
+                // Close the overflow popup when the new config leaves nothing to show in it.
+                if self.overflow_index().is_none()
+                    && let Some(popup_id) = self.overflow_popup.take()
+                {
+                    self.popup = None;
+                    self.open_menu = None;
                     return destroy_popup(popup_id);
                 }
                 Task::none()
@@ -353,7 +418,7 @@ impl cosmic::Application for App {
                     |_| Default::default(),
                     move |app: &mut Self| {
                         let popup_id = app.next_popup_id();
-                        let i = app.menus.keys().position(|&i| i == id).unwrap();
+                        let i = app.display_order().iter().position(|&i| i == id).unwrap();
 
                         let (i, parent) = app
                             .overflow_index()
@@ -513,6 +578,12 @@ impl cosmic::Application for App {
     fn subscription(&self) -> Subscription<Msg> {
         let mut subscriptions = Vec::new();
 
+        subscriptions.push(self.core.watch_config(Self::APP_ID).map(|u| {
+            for err in u.errors {
+                tracing::error!(?err, "Error watching config");
+            }
+            Msg::ConfigChanged(u.config)
+        }));
         subscriptions.push(status_notifier_watcher::subscription().map(Msg::StatusNotifier));
 
         for (id, menu) in &self.menus {
@@ -533,17 +604,20 @@ impl cosmic::Application for App {
     fn view(&self) -> cosmic::Element<'_, Msg> {
         let overflow_index = self.overflow_index();
 
-        let children = self
-            .menus
-            .iter()
-            .take(overflow_index.unwrap_or(self.menus.len()))
-            .map(|(id, menu)| {
+        let order = self.display_order();
+        let mut children: Vec<cosmic::Element<'_, Msg>> = Vec::new();
+        for id in order.iter().take(overflow_index.unwrap_or(order.len())) {
+            let Some(menu) = self.menus.get(id) else {
+                continue;
+            };
+            children.push(
                 mouse_area(menu_icon_button(&self.core.applet, menu).on_press(Msg::Activate(*id)))
                     .on_right_press(Msg::TogglePopup(*id))
                     .on_enter(Msg::Hovered(Some(*id)))
                     .on_exit(Msg::Hovered(None))
-                    .into()
-            });
+                    .into(),
+            );
+        }
 
         self.core
             .applet
